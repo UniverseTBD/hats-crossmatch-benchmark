@@ -28,7 +28,7 @@ def run_benchmark(config: BenchmarkConfig) -> BenchmarkResult:
         import dask
         dask.config.set(scheduler="synchronous")
     else:
-        client_kwargs = {}
+        client_kwargs = {"threads_per_worker": 1}
         if config.n_workers is not None:
             client_kwargs["n_workers"] = config.n_workers
         client = Client(**client_kwargs)
