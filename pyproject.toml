@@ -1,0 +1,17 @@
+[build-system]
+requires = ["setuptools>=75.0"]
+build-backend = "setuptools.backends._legacy:_Backend"
+
+[project]
+name = "hats-crossmatch-benchmark"
+version = "0.1.0"
+description = "Benchmarking tool for LSDB crossmatch performance on HATS-formatted catalogs"
+requires-python = ">=3.13"
+dependencies = [
+    "lsdb",
+    "psutil",
+    "click",
+]
+
+[project.optional-dependencies]
+dev = ["pytest"]

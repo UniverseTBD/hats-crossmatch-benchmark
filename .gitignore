@@ -1,0 +1,6 @@
+results/*.json
+results/*.csv
+results/history.csv
+__pycache__/
+*.pyc
+.venv/
