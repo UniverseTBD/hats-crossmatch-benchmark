@@ -33,16 +33,16 @@ def run_benchmark(config: BenchmarkConfig) -> BenchmarkResult:
             client_kwargs["n_workers"] = config.n_workers
         client = Client(**client_kwargs)
 
+    region = None
+    if config.test:
+        click.echo(f"  [test mode] Cone search: ({TEST_CONE_RA}, {TEST_CONE_DEC}), r={config.test_radius_deg}°")
+        region = lsdb.ConeSearch(TEST_CONE_RA, TEST_CONE_DEC, config.test_radius_deg * 3600)
+    
     try:
         # Phase 1: Load catalogs
         t0 = time.perf_counter()
-        cat_a = lsdb.open_catalog(url_a)
-        cat_b = lsdb.open_catalog(url_b)
-
-        if config.test:
-            click.echo(f"  [test mode] Cone search: ({TEST_CONE_RA}, {TEST_CONE_DEC}), r={config.test_radius_deg}°")
-            cat_a = cat_a.cone_search(TEST_CONE_RA, TEST_CONE_DEC, config.test_radius_deg * 3600)
-            cat_b = cat_b.cone_search(TEST_CONE_RA, TEST_CONE_DEC, config.test_radius_deg * 3600)
+        cat_a = lsdb.open_catalog(url_a, search_filter=region)
+        cat_b = lsdb.open_catalog(url_b, search_filter=region)
 
         result.time_load = time.perf_counter() - t0
 
