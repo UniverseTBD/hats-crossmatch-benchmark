@@ -10,6 +10,13 @@ class BenchmarkConfig:
     suffixes: tuple[str, str] = ("_a", "_b")
     repeat: int = 1
     n_workers: int | None = None
+    test: bool = False  # Cone-search to small sky region for fast iteration
+    test_radius_deg: float = 1.0  # Cone radius when test=True
+
+
+# SDSS field center — dense region with good multi-survey coverage
+TEST_CONE_RA = 150.0   # degrees (in COSMOS/SDSS Stripe 82 area)
+TEST_CONE_DEC = 2.0    # degrees
 
 
 CATALOG_REGISTRY = {
@@ -45,13 +52,13 @@ CATALOG_REGISTRY = {
 }
 
 STANDARD_PAIRS = [
-    # Small-small: SNe surveys with sky overlap
-    ("foundation", "des_y3_sne_ia"),
-    ("snls", "ps1_sne_ia"),
-    # Medium-medium
-    ("vipers_w1", "gz10"),
-    # Medium-large
-    ("jwst_ceers", "sdss"),
+    # Small-large: SNe surveys against wide-field
+    ("cfa_cfa3", "sdss"),
+    ("swift_sne_ia", "gaia"),
+    # Medium-large: Galaxy Zoo uses SDSS imaging
+    ("gz10", "sdss"),
+    # Large-large: wide-field surveys
+    ("sdss", "gaia"),
 ]
 
 

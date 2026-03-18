@@ -50,6 +50,7 @@ def cli():
 @click.option("--n-neighbors", default=1, help="Number of neighbors to find.")
 @click.option("--repeat", default=1, help="Number of times to repeat the benchmark.")
 @click.option("--n-workers", default=None, type=int, help="Dask worker count.")
+@click.option("--test", is_flag=True, help="Test mode: cone-search a small sky region, synchronous scheduler.")
 @click.option(
     "--output",
     multiple=True,
@@ -57,7 +58,7 @@ def cli():
     type=click.Choice(["console", "json", "csv"]),
     help="Output format(s).",
 )
-def run(catalog_a, catalog_b, catalog_a_path, catalog_b_path, radius, n_neighbors, repeat, n_workers, output):
+def run(catalog_a, catalog_b, catalog_a_path, catalog_b_path, radius, n_neighbors, repeat, n_workers, test, output):
     """Run a single crossmatch benchmark."""
     a = catalog_a_path or catalog_a
     b = catalog_b_path or catalog_b
@@ -71,6 +72,7 @@ def run(catalog_a, catalog_b, catalog_a_path, catalog_b_path, radius, n_neighbor
         n_neighbors=n_neighbors,
         repeat=repeat,
         n_workers=n_workers,
+        test=test,
     )
     results = run_repeated(config)
     _output_results(results, output)
@@ -86,6 +88,7 @@ def run(catalog_a, catalog_b, catalog_a_path, catalog_b_path, radius, n_neighbor
 )
 @click.option("--n-neighbors", default=1, help="Number of neighbors.")
 @click.option("--n-workers", default=None, type=int, help="Dask worker count.")
+@click.option("--test", is_flag=True, help="Test mode: cone-search a small sky region, synchronous scheduler.")
 @click.option(
     "--output",
     multiple=True,
@@ -93,7 +96,7 @@ def run(catalog_a, catalog_b, catalog_a_path, catalog_b_path, radius, n_neighbor
     type=click.Choice(["console", "json", "csv"]),
     help="Output format(s).",
 )
-def sweep(catalog_a, catalog_b, radii, n_neighbors, n_workers, output):
+def sweep(catalog_a, catalog_b, radii, n_neighbors, n_workers, test, output):
     """Run a parameter sweep varying crossmatch radius."""
     radius_list = [float(r.strip()) for r in radii.split(",")]
     all_results = []
@@ -107,6 +110,7 @@ def sweep(catalog_a, catalog_b, radii, n_neighbors, n_workers, output):
             radius_arcsec=radius,
             n_neighbors=n_neighbors,
             n_workers=n_workers,
+            test=test,
         )
         results = run_repeated(config)
         all_results.extend(results)
@@ -117,6 +121,7 @@ def sweep(catalog_a, catalog_b, radii, n_neighbors, n_workers, output):
 
 @cli.command()
 @click.option("--n-workers", default=None, type=int, help="Dask worker count.")
+@click.option("--test", is_flag=True, help="Test mode: cone-search a small sky region, synchronous scheduler.")
 @click.option(
     "--output",
     multiple=True,
@@ -124,7 +129,7 @@ def sweep(catalog_a, catalog_b, radii, n_neighbors, n_workers, output):
     type=click.Choice(["console", "json", "csv"]),
     help="Output format(s).",
 )
-def suite(n_workers, output):
+def suite(n_workers, test, output):
     """Run the standard benchmark suite (predefined catalog pairs)."""
     for a, b in STANDARD_PAIRS:
         click.echo(f"\n{'='*60}")
@@ -134,6 +139,7 @@ def suite(n_workers, output):
             catalog_a=a,
             catalog_b=b,
             n_workers=n_workers,
+            test=test,
         )
         results = run_repeated(config)
         _output_results(results, output)
