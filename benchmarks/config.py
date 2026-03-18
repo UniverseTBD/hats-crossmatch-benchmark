@@ -20,6 +20,7 @@ TEST_CONE_DEC = 2.0    # degrees
 
 
 CATALOG_REGISTRY = {
+    # === HuggingFace catalogs (MMU collection) ===
     # Large catalogs (>100k rows)
     "plasticc": "hf://datasets/UniverseTBD/mmu_plasticc",
     "desi": "hf://datasets/UniverseTBD/mmu_desi_edr_sv3",
@@ -49,6 +50,10 @@ CATALOG_REGISTRY = {
     "cfa_cfa4": "hf://datasets/UniverseTBD/mmu_cfa_cfa4",
     "cfa_snii": "hf://datasets/UniverseTBD/mmu_cfa_snii",
     "cfa_seccsn": "hf://datasets/UniverseTBD/mmu_cfa_seccsn",
+    # === S3 catalogs (public archive HATS) ===
+    "ztf_dr23": "s3://ipac-irsa-ztf/contributed/dr23/lc/hats",
+    "ps1_otmo": "s3://stpubdata/panstarrs/ps1/public/hats/otmo",
+    "gaia_dr3": "s3://stpubdata/gaia/gaia_dr3/public/hats",
 }
 
 STANDARD_PAIRS = [
@@ -61,10 +66,22 @@ STANDARD_PAIRS = [
     ("sdss", "gaia"),
 ]
 
+S3_PAIRS = [
+    # Cross-provider: MMU catalogs on HuggingFace × NASA archive catalogs on S3.
+    # Demonstrates that HATS crossmatch works across hosting providers.
+    # Use --test mode for quick validation — these are large catalogs.
+    ("sdss", "gaia_dr3"),       # HF MMU SDSS × S3 Gaia DR3
+    ("gz10", "ps1_otmo"),       # HF MMU Galaxy Zoo × S3 PS1 DR2
+    ("sdss", "ps1_otmo"),       # HF MMU SDSS × S3 PS1 DR2
+    # S3-only pairs
+    ("ztf_dr23", "gaia_dr3"),   # S3 ZTF DR23 × S3 Gaia DR3
+    ("ps1_otmo", "gaia_dr3"),   # S3 PS1 DR2 × S3 Gaia DR3
+]
+
 
 def resolve_catalog(name_or_url: str) -> str:
-    """Resolve a catalog short name to its HF URL, or return the URL as-is."""
-    if name_or_url.startswith("hf://"):
+    """Resolve a catalog short name to its URL, or return the URL as-is."""
+    if name_or_url.startswith(("hf://", "s3://", "https://", "http://")):
         return name_or_url
     if name_or_url not in CATALOG_REGISTRY:
         raise ValueError(

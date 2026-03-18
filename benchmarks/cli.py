@@ -2,6 +2,7 @@ import click
 
 from benchmarks.config import (
     CATALOG_REGISTRY,
+    S3_PAIRS,
     STANDARD_PAIRS,
     BenchmarkConfig,
 )
@@ -145,6 +146,34 @@ def suite(n_workers, test, output):
         _output_results(results, output)
 
     click.echo(f"\nSuite complete: {len(STANDARD_PAIRS)} pairs benchmarked.")
+
+
+@cli.command("s3-suite")
+@click.option("--n-workers", default=None, type=int, help="Dask worker count.")
+@click.option("--test", is_flag=True, help="Test mode: cone-search a small sky region, synchronous scheduler.")
+@click.option(
+    "--output",
+    multiple=True,
+    default=["console", "json"],
+    type=click.Choice(["console", "json", "csv"]),
+    help="Output format(s).",
+)
+def s3_suite(n_workers, test, output):
+    """Run the S3 benchmark suite (ZTF DR23, PS1 DR2, Gaia DR3)."""
+    for a, b in S3_PAIRS:
+        click.echo(f"\n{'='*60}")
+        click.echo(f"  {a} x {b}")
+        click.echo(f"{'='*60}")
+        config = BenchmarkConfig(
+            catalog_a=a,
+            catalog_b=b,
+            n_workers=n_workers,
+            test=test,
+        )
+        results = run_repeated(config)
+        _output_results(results, output)
+
+    click.echo(f"\nS3 suite complete: {len(S3_PAIRS)} pairs benchmarked.")
 
 
 @cli.command("list")
