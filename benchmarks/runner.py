@@ -81,7 +81,7 @@ def run_benchmark(config: BenchmarkConfig) -> BenchmarkResult:
         tracker.start()
         t0 = time.perf_counter()
         if client is not None:
-            future = client.compute(xmatch)
+            future = client.compute(xmatch._ddf)
             progress(future)
             computed = future.result()
         else:
