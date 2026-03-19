@@ -13,6 +13,7 @@ dependencies = [
     "psutil",
     "click",
     "s3fs",
+    "datasets",
 ]
 
 [project.optional-dependencies]

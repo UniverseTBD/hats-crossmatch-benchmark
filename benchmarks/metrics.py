@@ -38,6 +38,12 @@ class BenchmarkResult:
     num_partitions_a: int = 0
     num_partitions_b: int = 0
 
+    # Streaming fields
+    mode: str = "compute"
+    time_to_first_batch: float | None = None
+    num_batches: int | None = None
+    throughput_rows_per_sec: float | None = None
+
     def to_dict(self) -> dict:
         return {
             "catalog_a": self.config.catalog_a,
@@ -62,6 +68,10 @@ class BenchmarkResult:
             "dist_max": self.dist_max,
             "num_partitions_a": self.num_partitions_a,
             "num_partitions_b": self.num_partitions_b,
+            "mode": self.mode,
+            "time_to_first_batch": self.time_to_first_batch,
+            "num_batches": self.num_batches,
+            "throughput_rows_per_sec": self.throughput_rows_per_sec,
         }
 
 

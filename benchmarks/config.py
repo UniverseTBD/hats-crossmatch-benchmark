@@ -12,6 +12,8 @@ class BenchmarkConfig:
     n_workers: int | None = None
     test: bool = False  # Cone-search to small sky region for fast iteration
     test_radius_deg: float = 1.0  # Cone radius when test=True
+    mode: str = "compute"          # "compute" | "stream" | "stream-hf"
+    hf_repo_id: str | None = None  # Only for stream-hf mode
 
 
 # SDSS field center — dense region with good multi-survey coverage
@@ -59,11 +61,21 @@ CATALOG_REGISTRY = {
 STANDARD_PAIRS = [
     # Small-large: SNe surveys against wide-field
     ("cfa_cfa3", "sdss"),
-    ("swift_sne_ia", "gaia"),
     # Medium-large: Galaxy Zoo uses SDSS imaging
     ("gz10", "sdss"),
     # Large-large: wide-field surveys
     ("sdss", "gaia"),
+]
+
+STREAM_HF_REPOS = [
+    # Selection of HF repos at varying sizes for stream-hf benchmarking.
+    # Small
+    "UniverseTBD/mmu_cfa_cfa3",
+    # Medium
+    "UniverseTBD/mmu_gz10",
+    # Large
+    "UniverseTBD/mmu_sdss_sdss",
+    "UniverseTBD/mmu_gaia_gaia",
 ]
 
 S3_PAIRS = [
