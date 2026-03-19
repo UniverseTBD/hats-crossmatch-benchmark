@@ -69,8 +69,8 @@ def run_benchmark(config: BenchmarkConfig) -> BenchmarkResult:
             if "do not overlap" in str(e).lower():
                 click.echo("  Catalogs do not overlap — no matches possible.")
                 result.time_plan = time.perf_counter() - t0
-                result.num_rows_a = int(cat_a._ddf.map_partitions(len).compute().sum())
-                result.num_rows_b = int(cat_b._ddf.map_partitions(len).compute().sum())
+                result.num_rows_a = len(cat_a)
+                result.num_rows_b = len(cat_b)
                 result.time_total = time.perf_counter() - total_start
                 return result
             raise
@@ -92,8 +92,8 @@ def run_benchmark(config: BenchmarkConfig) -> BenchmarkResult:
         result.memory_peak = tracker.stop()
 
         # Phase 4: Analyze results
-        result.num_rows_a = int(cat_a._ddf.map_partitions(len).compute().sum())
-        result.num_rows_b = int(cat_b._ddf.map_partitions(len).compute().sum())
+        result.num_rows_a = len(cat_a)
+        result.num_rows_b = len(cat_b)
         result.num_matches = len(computed)
 
         min_rows = min(result.num_rows_a, result.num_rows_b)
