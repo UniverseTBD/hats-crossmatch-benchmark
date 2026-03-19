@@ -1,4 +1,8 @@
+import warnings
+
 import click
+
+warnings.filterwarnings("ignore", message="The behavior of array concatenation with empty entries")
 
 from benchmarks.config import (
     CATALOG_REGISTRY,
@@ -89,6 +93,7 @@ def run(catalog_a, catalog_b, catalog_a_path, catalog_b_path, radius, n_neighbor
 @click.option("--radius", default=1.0, help="Crossmatch radius in arcsec.")
 @click.option("--n-neighbors", default=1, help="Number of neighbors to find.")
 @click.option("--repeat", default=1, help="Number of times to repeat the benchmark.")
+@click.option("--n-workers", default=None, type=int, help="Dask worker count.")
 @click.option("--test", is_flag=True, help="Test mode: cone-search a small sky region.")
 @click.option(
     "--output",
@@ -97,7 +102,7 @@ def run(catalog_a, catalog_b, catalog_a_path, catalog_b_path, radius, n_neighbor
     type=click.Choice(["console", "json", "csv"]),
     help="Output format(s).",
 )
-def stream(catalog_a, catalog_b, catalog_a_path, catalog_b_path, radius, n_neighbors, repeat, test, output):
+def stream(catalog_a, catalog_b, catalog_a_path, catalog_b_path, radius, n_neighbors, repeat, n_workers, test, output):
     """Run a streaming crossmatch benchmark (partition-by-partition)."""
     a = catalog_a_path or catalog_a
     b = catalog_b_path or catalog_b
@@ -110,6 +115,7 @@ def stream(catalog_a, catalog_b, catalog_a_path, catalog_b_path, radius, n_neigh
         radius_arcsec=radius,
         n_neighbors=n_neighbors,
         repeat=repeat,
+        n_workers=n_workers,
         test=test,
         mode="stream",
     )

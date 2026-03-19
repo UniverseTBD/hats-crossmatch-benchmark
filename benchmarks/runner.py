@@ -5,9 +5,16 @@ import click
 import lsdb
 import numpy as np
 from dask.distributed import Client, progress
+from upath import UPath
 
 from benchmarks.config import BenchmarkConfig, TEST_CONE_DEC, TEST_CONE_RA, resolve_catalog
 from benchmarks.metrics import BenchmarkResult, PeakMemoryTracker
+
+
+def _suppress_concat_warning():
+    """Suppress the FutureWarning about array concatenation with empty entries."""
+    import warnings
+    warnings.filterwarnings("ignore", message="The behavior of array concatenation with empty entries")
 
 
 def run_benchmark(config: BenchmarkConfig) -> BenchmarkResult:
@@ -31,7 +38,10 @@ def run_benchmark(config: BenchmarkConfig) -> BenchmarkResult:
         client_kwargs = {"threads_per_worker": 1}
         if config.n_workers is not None:
             client_kwargs["n_workers"] = config.n_workers
+        import dask
+        dask.config.set({"distributed.admin.large-graph-warning-threshold": "100 MiB"})
         client = Client(**client_kwargs)
+        client.run(_suppress_concat_warning)
 
     region = None
     if config.test:
@@ -41,14 +51,18 @@ def run_benchmark(config: BenchmarkConfig) -> BenchmarkResult:
     try:
         # Phase 1: Load catalogs
         t0 = time.perf_counter()
-        kwargs_a = {"search_filter": region}
-        kwargs_b = {"search_filter": region}
-        if url_a.startswith("s3://"):
-            kwargs_a["storage_options"] = {"anon": True}
-        if url_b.startswith("s3://"):
-            kwargs_b["storage_options"] = {"anon": True}
-        cat_a = lsdb.open_catalog(url_a, **kwargs_a)
-        cat_b = lsdb.open_catalog(url_b, **kwargs_b)
+        path_a = UPath(url_a, anon=True) if url_a.startswith("s3://") else url_a
+        path_b = UPath(url_b, anon=True) if url_b.startswith("s3://") else url_b
+        try:
+            cat_a = lsdb.open_catalog(path_a, search_filter=region)
+            cat_b = lsdb.open_catalog(path_b, search_filter=region)
+        except ValueError as e:
+            if "no coverage" in str(e).lower():
+                click.echo("  Sky region has no coverage — skipping.")
+                result.time_load = time.perf_counter() - t0
+                result.time_total = time.perf_counter() - total_start
+                return result
+            raise
 
         result.time_load = time.perf_counter() - t0
 
