@@ -27,10 +27,49 @@ python -m benchmarks.cli sweep \
   --radii 0.1,0.5,1.0,2.0,5.0
 ```
 
+### Streaming crossmatch benchmark
+
+Iterates `lsdb.stream_crossmatch()` partition-by-partition, measuring time-to-first-batch and throughput:
+
+```bash
+python -m benchmarks.cli stream \
+  --catalog-a sdss --catalog-b plasticc \
+  --radius 1.0 --n-neighbors 1 \
+  --output console json
+```
+
+### Stream from HuggingFace Datasets
+
+Streams pre-computed crossmatch results row-by-row from a HF dataset:
+
+```bash
+python -m benchmarks.cli stream-hf \
+  --repo-id UniverseTBD/mmu_sdss_sdss \
+  --output console
+```
+
 ### Run standard benchmark suite
 
 ```bash
 python -m benchmarks.cli suite
+```
+
+Use `--mode stream` to run the suite in streaming mode:
+
+```bash
+python -m benchmarks.cli suite --mode stream
+```
+
+### Run S3 benchmark suite
+
+```bash
+python -m benchmarks.cli s3-suite
+```
+
+### Run stream-hf benchmark suite
+
+```bash
+python -m benchmarks.cli stream-hf-suite
 ```
 
 ### List available catalogs
