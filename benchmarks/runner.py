@@ -77,17 +77,23 @@ def run_benchmark(config: BenchmarkConfig) -> BenchmarkResult:
         result.time_plan = time.perf_counter() - t0
 
         # Phase 3: Compute (trigger execution with peak memory tracking)
+        # Reorder the dask dataframe partitions to match the expected meta columns.
+        # LSDB's margin concatenation can produce inconsistent column order across
+        # partitions, causing Dask's check_meta to fail with the distributed scheduler.
+        ddf = xmatch._ddf
+        ddf = ddf.map_partitions(lambda df: df.reindex(columns=ddf.columns))
+
         tracker = PeakMemoryTracker()
         tracker.start()
         t0 = time.perf_counter()
         if client is not None:
-            future = client.compute(xmatch._ddf)
+            future = client.compute(ddf)
             progress(future)
             computed = future.result()
         else:
             from dask.diagnostics import ProgressBar
             with ProgressBar():
-                computed = xmatch.compute()
+                computed = ddf.compute()
         result.time_compute = time.perf_counter() - t0
         result.memory_peak = tracker.stop()
 
