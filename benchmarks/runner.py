@@ -63,7 +63,7 @@ def run_benchmark(config: BenchmarkConfig) -> BenchmarkResult:
                 n_neighbors=config.n_neighbors,
                 radius_arcsec=config.radius_arcsec,
                 suffixes=config.suffixes,
-                suffix_method="overlapping_columns",
+                suffix_method="all_columns",
             )
         except RuntimeError as e:
             if "do not overlap" in str(e).lower():
