@@ -1,5 +1,4 @@
 import time
-import warnings
 from datetime import datetime, timezone
 
 import click
@@ -7,16 +6,27 @@ import lsdb
 import numpy as np
 from upath import UPath
 
-warnings.filterwarnings("ignore", message="The behavior of array concatenation with empty entries")
-
 from benchmarks.config import BenchmarkConfig, TEST_CONE_DEC, TEST_CONE_RA, resolve_catalog
 from benchmarks.metrics import BenchmarkResult, PeakMemoryTracker
 
 
-def _suppress_concat_warning():
-    """Suppress the FutureWarning about array concatenation with empty entries."""
-    import warnings
-    warnings.filterwarnings("ignore", message="The behavior of array concatenation with empty entries")
+def _patch_concat_partition_and_margin():
+    """Patch lsdb's concat_partition_and_margin to handle empty frames."""
+    import nested_pandas as npd
+    import pandas as pd
+    from lsdb.dask import merge_catalog_functions
+
+    def _safe_concat(partition, margin):
+        if margin is None or len(margin) == 0:
+            return partition
+        if len(partition) == 0:
+            return npd.NestedFrame(margin)
+        return npd.NestedFrame(pd.concat([partition, margin]))
+
+    merge_catalog_functions.concat_partition_and_margin = _safe_concat
+
+
+_patch_concat_partition_and_margin()
 
 
 def run_stream_benchmark(config: BenchmarkConfig) -> BenchmarkResult:
@@ -82,7 +92,7 @@ def run_stream_benchmark(config: BenchmarkConfig) -> BenchmarkResult:
         import dask
         dask.config.set({"distributed.admin.large-graph-warning-threshold": "100 MiB"})
         client = Client(**client_kwargs)
-        client.run(_suppress_concat_warning)
+        client.run(_patch_concat_partition_and_margin)
 
     n_partitions = xmatch.npartitions
     stream = CatalogStream(catalog=xmatch, client=client, shuffle=False)

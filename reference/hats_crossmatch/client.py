@@ -11,16 +11,43 @@ from __future__ import annotations
 from typing import Any
 
 import lsdb
+import nested_pandas as npd
+import pandas as pd
 from datasets import Features, IterableDataset, Value
+from lsdb.dask import merge_catalog_functions
 from lsdb.streams import CatalogStream
 
 
-def _iter_rows(xmatch):
-    """Yield one dict per row from the crossmatch CatalogStream."""
+def _concat_partition_and_margin(
+    partition: npd.NestedFrame, margin: npd.NestedFrame | None
+) -> npd.NestedFrame:
+    """Concatenate partition and margin, handling empty frames without warning."""
+    if margin is None or len(margin) == 0:
+        return partition
+    if len(partition) == 0:
+        return npd.NestedFrame(margin)
+    return npd.NestedFrame(pd.concat([partition, margin]))
+
+
+merge_catalog_functions.concat_partition_and_margin = _concat_partition_and_margin
+
+
+def _iter_rows(xmatch, stats=None):
+    """Yield one dict per row from the crossmatch CatalogStream.
+
+    If *stats* is a dict, it is updated in-place with partition progress:
+    ``npartitions``, ``partitions_done``.
+    """
     stream = CatalogStream(catalog=xmatch, shuffle=False)
+    npartitions = xmatch.npartitions
+    if stats is not None:
+        stats["npartitions"] = npartitions
+        stats["partitions_done"] = 0
     for chunk in stream:
         for record in chunk.to_dict("records"):
             yield record
+        if stats is not None:
+            stats["partitions_done"] += 1
 
 
 def stream_crossmatch(
@@ -89,4 +116,11 @@ def stream_crossmatch(
         suffix_method="all_columns",
     )
 
-    return IterableDataset.from_generator(_iter_rows, gen_kwargs={"xmatch": xmatch})
+    stats: dict[str, int] = {}
+    ds = IterableDataset.from_generator(
+        _iter_rows, gen_kwargs={"xmatch": xmatch, "stats": stats}
+    )
+    ds.crossmatch_stats = stats
+    ds.total_rows_a = cat_a.hc_structure.catalog_info.total_rows
+    ds.total_rows_b = cat_b.hc_structure.catalog_info.total_rows
+    return ds
