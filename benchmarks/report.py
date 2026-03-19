@@ -24,37 +24,90 @@ def _format_bytes(nbytes: int) -> str:
     return f"{nbytes / 1024**3:.2f} GB"
 
 
+def _console_report_compute(r: BenchmarkResult) -> None:
+    """Print compute-mode report for a single result."""
+    print(f"  Catalogs:    {r.config.catalog_a} x {r.config.catalog_b}")
+    print(f"  Radius:      {r.config.radius_arcsec} arcsec")
+    print(f"  N neighbors: {r.config.n_neighbors}")
+    print()
+    print(f"  Timing:")
+    print(f"    Load:      {_format_time(r.time_load)}")
+    print(f"    Plan:      {_format_time(r.time_plan)}")
+    print(f"    Compute:   {_format_time(r.time_compute)}")
+    print(f"    Total:     {_format_time(r.time_total)}")
+    print()
+    print(f"  Memory peak: {_format_bytes(r.memory_peak)}")
+    print()
+    print(f"  Rows A:      {r.num_rows_a:,}")
+    print(f"  Rows B:      {r.num_rows_b:,}")
+    print(f"  Partitions:  {r.num_partitions_a} x {r.num_partitions_b}")
+    print(f"  Matches:     {r.num_matches:,}")
+    print(f"  Match rate:  {r.match_rate:.2%}")
+    if r.num_matches > 0:
+        print()
+        print(f"  Distance (arcsec):")
+        print(f"    Mean:      {r.dist_mean:.4f}")
+        print(f"    Median:    {r.dist_median:.4f}")
+        print(f"    Std:       {r.dist_std:.4f}")
+        print(f"    Min:       {r.dist_min:.4f}")
+        print(f"    Max:       {r.dist_max:.4f}")
+
+
+def _console_report_stream(r: BenchmarkResult) -> None:
+    """Print stream-mode report for a single result."""
+    print(f"  Catalogs:    {r.config.catalog_a} x {r.config.catalog_b}")
+    print(f"  Radius:      {r.config.radius_arcsec} arcsec")
+    print(f"  N neighbors: {r.config.n_neighbors}")
+    print()
+    print(f"  Timing:")
+    print(f"    Compute:   {_format_time(r.time_compute)}")
+    if r.time_to_first_batch is not None:
+        print(f"    First batch: {_format_time(r.time_to_first_batch)}")
+    print(f"    Total:     {_format_time(r.time_total)}")
+    print()
+    print(f"  Num batches: {r.num_batches}")
+    if r.throughput_rows_per_sec is not None:
+        print(f"  Throughput:  {r.throughput_rows_per_sec:,.0f} rows/sec")
+    print(f"  Memory peak: {_format_bytes(r.memory_peak)}")
+    print()
+    print(f"  Matches:     {r.num_matches:,}")
+    if r.num_matches > 0 and r.dist_mean > 0:
+        print()
+        print(f"  Distance (arcsec):")
+        print(f"    Mean:      {r.dist_mean:.4f}")
+        print(f"    Median:    {r.dist_median:.4f}")
+        print(f"    Std:       {r.dist_std:.4f}")
+        print(f"    Min:       {r.dist_min:.4f}")
+        print(f"    Max:       {r.dist_max:.4f}")
+
+
+def _console_report_stream_hf(r: BenchmarkResult) -> None:
+    """Print stream-hf mode report for a single result."""
+    print(f"  HF repo:     {r.config.hf_repo_id}")
+    print()
+    print(f"  Timing:")
+    if r.time_to_first_batch is not None:
+        print(f"    First row: {_format_time(r.time_to_first_batch)}")
+    print(f"    Total:     {_format_time(r.time_total)}")
+    print()
+    print(f"  Num rows:    {r.num_matches:,}")
+    if r.throughput_rows_per_sec is not None:
+        print(f"  Throughput:  {r.throughput_rows_per_sec:,.0f} rows/sec")
+    print(f"  Memory peak: {_format_bytes(r.memory_peak)}")
+
+
 def console_report(results: list[BenchmarkResult]) -> None:
     """Print a human-readable summary to stdout."""
     for i, r in enumerate(results):
         if len(results) > 1:
             print(f"\n--- Run {i + 1}/{len(results)} ---")
         print()
-        print(f"  Catalogs:    {r.config.catalog_a} x {r.config.catalog_b}")
-        print(f"  Radius:      {r.config.radius_arcsec} arcsec")
-        print(f"  N neighbors: {r.config.n_neighbors}")
-        print()
-        print(f"  Timing:")
-        print(f"    Load:      {_format_time(r.time_load)}")
-        print(f"    Plan:      {_format_time(r.time_plan)}")
-        print(f"    Compute:   {_format_time(r.time_compute)}")
-        print(f"    Total:     {_format_time(r.time_total)}")
-        print()
-        print(f"  Memory peak: {_format_bytes(r.memory_peak)}")
-        print()
-        print(f"  Rows A:      {r.num_rows_a:,}")
-        print(f"  Rows B:      {r.num_rows_b:,}")
-        print(f"  Partitions:  {r.num_partitions_a} x {r.num_partitions_b}")
-        print(f"  Matches:     {r.num_matches:,}")
-        print(f"  Match rate:  {r.match_rate:.2%}")
-        if r.num_matches > 0:
-            print()
-            print(f"  Distance (arcsec):")
-            print(f"    Mean:      {r.dist_mean:.4f}")
-            print(f"    Median:    {r.dist_median:.4f}")
-            print(f"    Std:       {r.dist_std:.4f}")
-            print(f"    Min:       {r.dist_min:.4f}")
-            print(f"    Max:       {r.dist_max:.4f}")
+        if r.mode == "stream":
+            _console_report_stream(r)
+        elif r.mode == "stream-hf":
+            _console_report_stream_hf(r)
+        else:
+            _console_report_compute(r)
 
     if len(results) > 1:
         times = [r.time_total for r in results]
