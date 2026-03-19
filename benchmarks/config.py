@@ -61,7 +61,6 @@ CATALOG_REGISTRY = {
 STANDARD_PAIRS = [
     # Small-large: SNe surveys against wide-field
     ("cfa_cfa3", "sdss"),
-    ("swift_sne_ia", "gaia"),
     # Medium-large: Galaxy Zoo uses SDSS imaging
     ("gz10", "sdss"),
     # Large-large: wide-field surveys
