@@ -4,8 +4,7 @@ from datetime import datetime, timezone
 import click
 import lsdb
 import numpy as np
-from dask.diagnostics import ProgressBar
-from dask.distributed import Client
+from dask.distributed import Client, progress
 
 from benchmarks.config import BenchmarkConfig, TEST_CONE_DEC, TEST_CONE_RA, resolve_catalog
 from benchmarks.metrics import BenchmarkResult, PeakMemoryTracker
@@ -81,8 +80,14 @@ def run_benchmark(config: BenchmarkConfig) -> BenchmarkResult:
         tracker = PeakMemoryTracker()
         tracker.start()
         t0 = time.perf_counter()
-        with ProgressBar():
-            computed = xmatch.compute()
+        if client is not None:
+            future = client.compute(xmatch)
+            progress(future)
+            computed = future.result()
+        else:
+            from dask.diagnostics import ProgressBar
+            with ProgressBar():
+                computed = xmatch.compute()
         result.time_compute = time.perf_counter() - t0
         result.memory_peak = tracker.stop()
 
