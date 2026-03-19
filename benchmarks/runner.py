@@ -41,8 +41,14 @@ def run_benchmark(config: BenchmarkConfig) -> BenchmarkResult:
     try:
         # Phase 1: Load catalogs
         t0 = time.perf_counter()
-        cat_a = lsdb.open_catalog(url_a, search_filter=region)
-        cat_b = lsdb.open_catalog(url_b, search_filter=region)
+        kwargs_a = {"search_filter": region}
+        kwargs_b = {"search_filter": region}
+        if url_a.startswith("s3://"):
+            kwargs_a["storage_options"] = {"anon": True}
+        if url_b.startswith("s3://"):
+            kwargs_b["storage_options"] = {"anon": True}
+        cat_a = lsdb.open_catalog(url_a, **kwargs_a)
+        cat_b = lsdb.open_catalog(url_b, **kwargs_b)
 
         result.time_load = time.perf_counter() - t0
 

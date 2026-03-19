@@ -66,24 +66,41 @@ class BenchmarkResult:
 
 
 class PeakMemoryTracker:
-    """Background thread that samples RSS to find peak memory usage."""
+    """Background thread that samples RSS to find peak memory usage.
+
+    Tracks the main process and all child processes (including Dask workers
+    in a local cluster) to capture total memory footprint.
+    """
 
     def __init__(self, interval: float = 0.1):
         self._interval = interval
         self._process = psutil.Process()
-        self._peak = self._process.memory_info().rss
+        self._peak = self._total_rss()
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
 
+    def _total_rss(self) -> int:
+        """Sum RSS of this process and all descendant processes."""
+        try:
+            rss = self._process.memory_info().rss
+            for child in self._process.children(recursive=True):
+                try:
+                    rss += child.memory_info().rss
+                except (psutil.NoSuchProcess, psutil.AccessDenied):
+                    pass
+            return rss
+        except (psutil.NoSuchProcess, psutil.AccessDenied):
+            return 0
+
     def start(self):
-        self._peak = self._process.memory_info().rss
+        self._peak = self._total_rss()
         self._stop.clear()
         self._thread = threading.Thread(target=self._sample, daemon=True)
         self._thread.start()
 
     def _sample(self):
         while not self._stop.is_set():
-            rss = self._process.memory_info().rss
+            rss = self._total_rss()
             if rss > self._peak:
                 self._peak = rss
             self._stop.wait(self._interval)
@@ -93,7 +110,7 @@ class PeakMemoryTracker:
         if self._thread:
             self._thread.join()
         # One final sample
-        rss = self._process.memory_info().rss
+        rss = self._total_rss()
         if rss > self._peak:
             self._peak = rss
         return self._peak

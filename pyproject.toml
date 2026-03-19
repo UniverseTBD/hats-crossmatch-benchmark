@@ -12,6 +12,7 @@ dependencies = [
     "huggingface_hub",
     "psutil",
     "click",
+    "s3fs",
 ]
 
 [project.optional-dependencies]
