@@ -32,13 +32,24 @@ def _concat_partition_and_margin(
 merge_catalog_functions.concat_partition_and_margin = _concat_partition_and_margin
 
 
-def _iter_rows(xmatch, stats=None):
+def _iter_rows(xmatch, stats=None, n_workers=None, partitions_per_chunk=1):
     """Yield one dict per row from the crossmatch CatalogStream.
 
     If *stats* is a dict, it is updated in-place with partition progress:
     ``npartitions``, ``partitions_done``.
     """
-    stream = CatalogStream(catalog=xmatch, shuffle=False)
+    client = None
+    if n_workers is not None:
+        from distributed import Client
+
+        client = Client(n_workers=n_workers, threads_per_worker=1)
+
+    stream = CatalogStream(
+        catalog=xmatch,
+        client=client,
+        partitions_per_chunk=partitions_per_chunk,
+        shuffle=False,
+    )
     npartitions = xmatch.npartitions
     if stats is not None:
         stats["npartitions"] = npartitions
@@ -47,7 +58,7 @@ def _iter_rows(xmatch, stats=None):
         for record in chunk.to_dict("records"):
             yield record
         if stats is not None:
-            stats["partitions_done"] += 1
+            stats["partitions_done"] += partitions_per_chunk
 
 
 def stream_crossmatch(
@@ -60,6 +71,8 @@ def stream_crossmatch(
     search_filter: Any | None = None,
     storage_options_a: dict | None = None,
     storage_options_b: dict | None = None,
+    partitions_per_chunk: int = 1,
+    n_workers: int | None = None,
 ) -> IterableDataset:
     """Stream crossmatch results as an HF IterableDataset.
 
@@ -81,6 +94,12 @@ def stream_crossmatch(
         Storage options for catalog A (e.g. ``{"anon": True}`` for S3).
     storage_options_b : dict or None
         Storage options for catalog B.
+    partitions_per_chunk : int
+        Number of Dask partitions to compute per chunk. Higher values
+        increase memory usage but may improve throughput.
+    n_workers : int or None
+        If given, spin up a ``dask.distributed.Client`` with this many
+        single-threaded workers and pass it to ``CatalogStream``.
 
     Returns
     -------
@@ -118,7 +137,13 @@ def stream_crossmatch(
 
     stats: dict[str, int] = {}
     ds = IterableDataset.from_generator(
-        _iter_rows, gen_kwargs={"xmatch": xmatch, "stats": stats}
+        _iter_rows,
+        gen_kwargs={
+            "xmatch": xmatch,
+            "stats": stats,
+            "n_workers": n_workers,
+            "partitions_per_chunk": partitions_per_chunk,
+        },
     )
     ds.crossmatch_stats = stats
     ds.total_rows_a = cat_a.hc_structure.catalog_info.total_rows
