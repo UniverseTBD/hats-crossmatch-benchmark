@@ -2,6 +2,9 @@
 requires = ["setuptools>=75.0"]
 build-backend = "setuptools.build_meta"
 
+[tool.setuptools]
+packages = []
+
 [project]
 name = "hats-crossmatch-benchmark"
 version = "0.1.0"

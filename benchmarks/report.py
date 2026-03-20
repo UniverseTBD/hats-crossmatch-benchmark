@@ -124,7 +124,7 @@ def json_report(results: list[BenchmarkResult]) -> Path:
     slug_a = r.config.catalog_a.replace("/", "_")
     slug_b = r.config.catalog_b.replace("/", "_")
     ts = r.timestamp.replace(":", "-").replace("+", "p")
-    filename = f"{ts}_{slug_a}_x_{slug_b}.json"
+    filename = f"{ts}_{r.mode}_{slug_a}_x_{slug_b}.json"
     path = RESULTS_DIR / filename
 
     data = [r.to_dict() for r in results]
