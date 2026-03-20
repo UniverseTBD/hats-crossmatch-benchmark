@@ -16,5 +16,8 @@ dependencies = [
     "datasets",
 ]
 
+[tool.setuptools]
+packages = []
+
 [project.optional-dependencies]
 dev = ["pytest"]
