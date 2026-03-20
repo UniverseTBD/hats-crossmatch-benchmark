@@ -1,0 +1,30 @@
+[
+  {
+    "catalog_a": "cfa_cfa3",
+    "catalog_b": "sdss",
+    "radius_arcsec": 1.0,
+    "n_neighbors": 1,
+    "repeat": 1,
+    "timestamp": "2026-03-19T20:37:37.693282+00:00",
+    "time_load": 0.0,
+    "time_plan": 0.0,
+    "time_compute": 123.80482197878882,
+    "time_total": 123.80482197878882,
+    "memory_peak": 2781220864,
+    "num_rows_a": 0,
+    "num_rows_b": 0,
+    "num_matches": 2,
+    "match_rate": 0.0,
+    "dist_mean": 0.47036661385757517,
+    "dist_median": 0.47036661385757517,
+    "dist_std": 0.33344790573210825,
+    "dist_min": 0.13691870812546686,
+    "dist_max": 0.8038145195896834,
+    "num_partitions_a": 0,
+    "num_partitions_b": 0,
+    "mode": "stream",
+    "time_to_first_batch": 2.7529077809304,
+    "num_batches": 70,
+    "throughput_rows_per_sec": 0.016154459640858376
+  }
+]

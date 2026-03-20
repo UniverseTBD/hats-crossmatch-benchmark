@@ -1,0 +1,26 @@
+[
+  {
+    "catalog_a": "sdss",
+    "catalog_b": "gaia",
+    "radius_arcsec": 1.0,
+    "n_neighbors": 1,
+    "repeat": 1,
+    "timestamp": "2026-03-19T15:53:58.031030+00:00",
+    "time_load": 17.218891395255923,
+    "time_plan": 15.035295791924,
+    "time_compute": 1367.2675490099937,
+    "time_total": 1415.514401210472,
+    "memory_peak": 15216152576,
+    "num_rows_a": 806176,
+    "num_rows_b": 122302572,
+    "num_matches": 21377,
+    "match_rate": 0.026516542293494226,
+    "dist_mean": 0.18988549905904653,
+    "dist_median": 0.12048092202018652,
+    "dist_std": 0.18957372362199912,
+    "dist_min": 0.0007421310330035656,
+    "dist_max": 0.9997981997788742,
+    "num_partitions_a": 789,
+    "num_partitions_b": 33055
+  }
+]

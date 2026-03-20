@@ -1,0 +1,26 @@
+[
+  {
+    "catalog_a": "gz10",
+    "catalog_b": "sdss",
+    "radius_arcsec": 1.0,
+    "n_neighbors": 1,
+    "repeat": 1,
+    "timestamp": "2026-03-19T15:36:18.629599+00:00",
+    "time_load": 9.127992821857333,
+    "time_plan": 1.7954825041815639,
+    "time_compute": 1032.885299777612,
+    "time_total": 1059.355244314298,
+    "memory_peak": 16353579008,
+    "num_rows_a": 17736,
+    "num_rows_b": 806176,
+    "num_matches": 11483,
+    "match_rate": 0.6474402345511953,
+    "dist_mean": 0.08341361773614604,
+    "dist_median": 0.058756529928156484,
+    "dist_std": 0.09035832632876391,
+    "dist_min": 0.0007785257394789486,
+    "dist_max": 0.986461884333064,
+    "num_partitions_a": 766,
+    "num_partitions_b": 789
+  }
+]
