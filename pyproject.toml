@@ -14,6 +14,8 @@ dependencies = [
     "click",
     "s3fs",
     "datasets",
+    "matplotlib>=3.10.8",
+    "jupyter>=1.1.1",
 ]
 
 [tool.setuptools]
