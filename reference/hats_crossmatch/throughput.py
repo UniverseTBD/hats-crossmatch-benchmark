@@ -33,8 +33,8 @@ class ThroughputCounter:
         self._dataset = dataset
         self._stats: dict = getattr(dataset, "crossmatch_stats", {})
         self.total_source_rows: int = (
-            getattr(dataset, "total_rows_a", 0)
-            + getattr(dataset, "total_rows_b", 0)
+            (getattr(dataset, "total_rows_a", 0) or 0)
+            + (getattr(dataset, "total_rows_b", 0) or 0)
         )
         self.matched_rows: int = 0
         self.source_rows_scanned: int = 0
