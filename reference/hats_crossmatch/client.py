@@ -142,7 +142,7 @@ def stream_crossmatch(
             "xmatch": xmatch,
             "stats": stats,
             "n_workers": n_workers,
-            "partitions_per_chunk": n_workers,
+            "partitions_per_chunk": 3 * n_workers,
         },
     )
     ds.crossmatch_stats = stats
