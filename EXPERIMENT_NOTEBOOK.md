@@ -1,11 +1,13 @@
 # Experiment Notebook
 
-## Experiment 1: Parameter Sweep Baseline (2026-03-25)
+## Experiment 1: Parameter Sweep Baseline — WiFi (2026-03-25)
 
 **Setup:** `hf://` URLs with monkey-patched `read_parquet_file_to_pandas` to intercept
 `hf://` paths, convert to `https://` via `huggingface_hub.hf_hub_url()`, and read through
 `fsspec.implementations.http.HTTPFileSystem`. The monkey-patch was applied/restored around
 each partition compute in both the multiprocess and sharded paths.
+
+**Network:** WiFi
 
 **Catalogs:**
 - A: `hf://datasets/UniverseTBD/mmu_sdss_sdss`
@@ -38,8 +40,8 @@ throughput plateaus around 18 rows/s, suggesting the bottleneck is per-partition
 | 8        | 8.5       | 2.1      | 198.2     | 25.2   |
 
 **Observation:** Multiprocessing gives a ~1.5x speedup at num_proc=2 but plateaus there.
-No further gains at 4 or 8 processes. This suggests the monkey-patching approach (creating
-a new HTTPFileSystem per worker, re-resolving hf:// URLs) has overhead that limits scaling.
+No further gains at 4 or 8 processes. However, this run was on WiFi — see Experiment 1b
+for ethernet results which do not exhibit this plateau.
 
 ### Group C: DataLoader workers (num_proc=0, prefetch=16)
 
@@ -53,6 +55,28 @@ a new HTTPFileSystem per worker, re-resolving hf:// URLs) has overhead that limi
 **Observation:** DataLoader workers provide marginal improvement (~10% at dw=8). The
 sharded generator approach with prefetch already overlaps I/O, so adding DataLoader
 parallelism on top adds little.
+
+---
+
+## Experiment 1b: Monkey-patch Baseline — Ethernet (2026-03-25)
+
+**Setup:** Same code as Experiment 1 (`hf://` URLs with monkey-patched reader), but
+run on ethernet instead of WiFi.
+
+**Network:** Ethernet
+
+### Group B: Multiprocess pool (dataloader_workers=0, prefetch=16)
+
+| num_proc | rows/s |
+|----------|--------|
+| 1        | 18.2   |
+| 2        | 28.2   |
+| 4        | 34.8   |
+| 8        | 37.1   |
+
+**Observation:** On ethernet, the monkey-patched code scales well with process count —
+the plateau seen in Experiment 1 at ~25 rows/s was caused by WiFi bandwidth limitations,
+not by the monkey-patching approach itself.
 
 ---
 
@@ -88,25 +112,25 @@ This lets fsspec natively use `HTTPFileSystem` for all I/O — no patching of up
 | 4        | 8.9       | 2.3      | 146.5     | 34.1   |
 | 8        | 9.0       | 2.6      | 140.9     | 35.5   |
 
-### Comparison: hf:// monkey-patch vs native HTTPS
+### Comparison: hf:// monkey-patch (ethernet) vs native HTTPS (ethernet)
+
+Both runs on ethernet for apples-to-apples comparison:
 
 | num_proc | hf:// + patch (rows/s) | https:// native (rows/s) | Change |
 |----------|------------------------|--------------------------|--------|
-| 1        | 17.0                   | 17.8                     | +4.7%  |
-| 2        | 25.3                   | 26.9                     | +6.3%  |
-| 4        | 25.4                   | 34.1                     | +34.3% |
-| 8        | 25.2                   | 35.5                     | +40.9% |
+| 1        | 18.2                   | 17.8                     | -2.2%  |
+| 2        | 28.2                   | 26.9                     | -4.6%  |
+| 4        | 34.8                   | 34.1                     | -2.0%  |
+| 8        | 37.1                   | 35.5                     | -4.3%  |
 
-**Key finding:** The native HTTPS approach scales significantly better with more processes.
-The old monkey-patching approach plateaued at ~25 rows/s regardless of process count (2, 4,
-or 8). The HTTPS approach continues scaling up to 35.5 rows/s at 8 processes — a 40%
-improvement over the patched version.
+**Key finding:** Performance is comparable between the two approaches. The native HTTPS
+approach is slightly slower (~2-5%), likely within run-to-run variance. The important
+result is that replacing `hf://` with direct HTTPS URLs produces equivalent throughput
+while eliminating the monkey-patching of `hats.io.file_io.read_parquet_file_to_pandas`.
 
-**Why:** With `hf://` URLs, the monkey-patch had to create a new `HTTPFileSystem` and
-resolve each `hf://` path via `hf_hub_url()` on every parquet read. With native HTTPS,
-fsspec uses `HTTPFileSystem` directly from the Dask graph — the paths are already resolved,
-and after the fork-safety reset, each worker gets a clean async event loop without the
-per-read URL resolution overhead.
+**Note:** The earlier Experiment 1 WiFi results showed the monkey-patch plateau at ~25
+rows/s for num_proc >= 2, which was misleading — that was a WiFi bandwidth bottleneck,
+not a code issue. Experiment 1b on ethernet confirmed the monkey-patch scales fine.
 
 **Note on environment:** fsspec's `HTTPFileSystem` uses aiohttp, which requires a valid
 SSL CA bundle. On systems where the default CA bundle is not found, set
