@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "hats-crossmatch-benchmark"
 version = "0.1.0"
 description = "Benchmarking tool for LSDB crossmatch performance on HATS-formatted catalogs"
-requires-python = ">=3.13"
+requires-python = ">=3.12"
 dependencies = [
     "lsdb",
     "huggingface_hub",

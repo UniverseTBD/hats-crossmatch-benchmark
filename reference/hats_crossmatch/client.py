@@ -20,22 +20,48 @@ from lsdb.dask import merge_catalog_functions
 _WORKER_PARTITIONS = None
 
 
+def _reset_fsspec_after_fork():
+    """Make fsspec's async filesystems usable after fork.
+
+    After ``fork()``, inherited ``AsyncFileSystem`` instances hold a dead
+    event loop and aiohttp session.  This resets the global loop state
+    and patches the ``loop`` property so that inherited instances
+    re-initialise their loop *and* session instead of raising
+    ``RuntimeError("not fork-safe")``.
+    """
+    import os
+
+    import fsspec.asyn
+
+    fsspec.asyn.reset_after_fork()
+    fsspec.asyn.reset_lock()
+
+    _pid = os.getpid()
+
+    def _loop_auto_reset(self):
+        if self._pid != _pid:
+            self._pid = _pid
+            self._loop = fsspec.asyn.get_loop()
+            # Also clear the inherited aiohttp session so a fresh
+            # one is created on the new event loop.
+            if hasattr(self, '_session'):
+                self._session = None
+        return self._loop
+
+    fsspec.asyn.AsyncFileSystem.loop = property(_loop_auto_reset)
+
+
 def _pool_worker(idx):
     """Compute a single partition in a forked worker process."""
     import os
-
-    import hats.io.file_io.file_io as _file_io
 
     os.environ.setdefault("OMP_NUM_THREADS", "1")
     os.environ.setdefault("MKL_NUM_THREADS", "1")
     os.environ.setdefault("OPENBLAS_NUM_THREADS", "1")
 
-    _orig_read = _file_io.read_parquet_file_to_pandas
-    _file_io.read_parquet_file_to_pandas = _make_async_read_patch()
-    try:
-        chunk = _WORKER_PARTITIONS[idx].compute(scheduler="synchronous")
-    finally:
-        _file_io.read_parquet_file_to_pandas = _orig_read
+    _reset_fsspec_after_fork()
+
+    chunk = _WORKER_PARTITIONS[idx].compute(scheduler="synchronous")
     return chunk
 
 
@@ -50,37 +76,6 @@ def _iter_rows_multiproc(dask_partitions, num_proc):
     with ctx.Pool(num_proc) as pool:
         for chunk in pool.imap_unordered(_pool_worker, range(len(dask_partitions))):
             yield from chunk.to_dict("records")
-
-
-def _make_async_read_patch():
-    """Create a patched ``read_parquet_file_to_pandas`` that uses async HTTP.
-
-    Returns the patched function.  The patch resolves ``hf://`` URLs to
-    ``https://`` and reads via ``fsspec.implementations.http.HTTPFileSystem``
-    (which inherits from ``AsyncFileSystem`` and uses aiohttp in a background
-    thread, bypassing the GIL).  Non-HF paths fall through to the original.
-    """
-    import re
-
-    import fsspec.implementations.http
-    import hats.io.file_io.file_io as _file_io
-    from huggingface_hub import hf_hub_url
-
-    _orig = _file_io.read_parquet_file_to_pandas
-    _http_fs = fsspec.implementations.http.HTTPFileSystem()
-
-    _HF_RE = re.compile(r"^hf://datasets/([^/]+/[^/]+)/(.+)$")
-
-    def _patched_read(path, *args, **kwargs):
-        path_str = str(path)
-        m = _HF_RE.match(path_str)
-        if m:
-            repo_id, file_path = m.group(1), m.group(2)
-            url = hf_hub_url(repo_id=repo_id, filename=file_path, repo_type="dataset")
-            return npd.read_parquet(url, filesystem=_http_fs, **kwargs)
-        return _orig(path, *args, **kwargs)
-
-    return _patched_read
 
 
 def _iter_rows_sharded(partition_indices, dask_partitions, prefetch=16):
@@ -100,49 +95,42 @@ def _iter_rows_sharded(partition_indices, dask_partitions, prefetch=16):
     import os
 
     import dask
-    import hats.io.file_io.file_io as _file_io
 
     os.environ.setdefault("OMP_NUM_THREADS", "1")
     os.environ.setdefault("MKL_NUM_THREADS", "1")
     os.environ.setdefault("OPENBLAS_NUM_THREADS", "1")
 
-    _orig_read = _file_io.read_parquet_file_to_pandas
-    _file_io.read_parquet_file_to_pandas = _make_async_read_patch()
+    # HF wraps each shard element in a list — unwrap to plain ints.
+    indices = [
+        x if isinstance(x, int) else x[0]
+        for x in partition_indices
+    ]
 
-    try:
-        # HF wraps each shard element in a list — unwrap to plain ints.
-        indices = [
-            x if isinstance(x, int) else x[0]
-            for x in partition_indices
-        ]
+    if prefetch <= 1:
+        for idx in indices:
+            chunk = dask_partitions[idx].compute(scheduler="synchronous")
+            yield from chunk.to_dict("records")
+        return
 
-        if prefetch <= 1:
-            for idx in indices:
-                chunk = dask_partitions[idx].compute(scheduler="synchronous")
+    from concurrent.futures import ThreadPoolExecutor
+
+    def compute_batch(batch_indices):
+        parts = [dask_partitions[i] for i in batch_indices]
+        return dask.compute(*parts, scheduler="threads", num_workers=prefetch)
+
+    batches = [
+        indices[i : i + prefetch]
+        for i in range(0, len(indices), prefetch)
+    ]
+
+    with ThreadPoolExecutor(max_workers=1) as bg:
+        future = bg.submit(compute_batch, batches[0])
+        for i, batch in enumerate(batches):
+            results = future.result()
+            if i + 1 < len(batches):
+                future = bg.submit(compute_batch, batches[i + 1])
+            for chunk in results:
                 yield from chunk.to_dict("records")
-            return
-
-        from concurrent.futures import ThreadPoolExecutor
-
-        def compute_batch(batch_indices):
-            parts = [dask_partitions[i] for i in batch_indices]
-            return dask.compute(*parts, scheduler="threads", num_workers=prefetch)
-
-        batches = [
-            indices[i : i + prefetch]
-            for i in range(0, len(indices), prefetch)
-        ]
-
-        with ThreadPoolExecutor(max_workers=1) as bg:
-            future = bg.submit(compute_batch, batches[0])
-            for i, batch in enumerate(batches):
-                results = future.result()
-                if i + 1 < len(batches):
-                    future = bg.submit(compute_batch, batches[i + 1])
-                for chunk in results:
-                    yield from chunk.to_dict("records")
-    finally:
-        _file_io.read_parquet_file_to_pandas = _orig_read
 
 
 def _concat_partition_and_margin(
