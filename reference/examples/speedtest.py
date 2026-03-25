@@ -17,18 +17,25 @@ URL_B = "hf://datasets/UniverseTBD/mmu_gz10"
 def main():
     parser = argparse.ArgumentParser(description="Speed test for streaming crossmatch")
     parser.add_argument("--radius", type=float, default=1.0, help="Crossmatch radius in arcseconds (default: 1.0)")
-    parser.add_argument("--partitions-per-chunk", type=int, default=1, help="Partitions per chunk (default: 1)")
-    parser.add_argument("--n-workers", type=int, default=None, help="Number of Dask workers (default: None, only used with --no-sharded)")
-    parser.add_argument("--no-sharded", action="store_true", help="Disable sharded mode (use legacy CatalogStream path)")
+    parser.add_argument("--prefetch", type=int, default=16, help="Thread-pool prefetch depth (default: 16, set 1 to disable)")
+    parser.add_argument("--num-proc", type=int, default=0, help="Number of multiprocessing workers (default: 0 = single-process)")
     parser.add_argument("--dataloader-workers", type=int, default=0, help="Number of DataLoader workers (default: 0 = main process)")
+    parser.add_argument("--columns-a", type=str, default=None, help="Comma-separated columns for catalog A (default: all)")
+    parser.add_argument("--columns-b", type=str, default=None, help="Comma-separated columns for catalog B (default: all)")
     args = parser.parse_args()
 
-    sharded = not args.no_sharded
+    columns_a = [c.strip() for c in args.columns_a.split(",")] if args.columns_a else None
+    columns_b = [c.strip() for c in args.columns_b.split(",")] if args.columns_b else None
 
     print(f"Catalogs: {URL_A.split('/')[-1]} x {URL_B.split('/')[-1]}")
-    print(f"Mode: {'sharded' if sharded else 'legacy (CatalogStream)'}")
-    if sharded and args.dataloader_workers > 0:
+    if args.num_proc > 0:
+        print(f"Multiprocess workers: {args.num_proc}")
+    else:
+        print(f"Prefetch threads: {args.prefetch}")
+    if args.dataloader_workers > 0:
         print(f"DataLoader workers: {args.dataloader_workers}")
+    print(f"Columns A: {columns_a or 'all'}")
+    print(f"Columns B: {columns_b or 'all'}")
     print("Setting up crossmatch...")
 
     t_setup = time.perf_counter()
@@ -37,16 +44,17 @@ def main():
         url_b=URL_B,
         radius_arcsec=args.radius,
         n_neighbors=1,
-        partitions_per_chunk=args.partitions_per_chunk,
-        n_workers=args.n_workers,
-        sharded=sharded,
+        prefetch=args.prefetch,
+        num_proc=args.num_proc,
+        columns_a=columns_a,
+        columns_b=columns_b,
     )
     t_setup = time.perf_counter() - t_setup
     print(f"Setup: {t_setup:.2f}s")
     print(f"Source rows: {ds.total_rows_a:,} + {ds.total_rows_b:,} = {ds.total_rows_a + ds.total_rows_b:,}")
     print(f"Shards (partitions): {ds.n_shards}\n")
 
-    if sharded and args.dataloader_workers > 0:
+    if args.dataloader_workers > 0:
         _run_with_dataloader(ds, args.dataloader_workers)
     else:
         _run_simple(ds)
@@ -71,7 +79,11 @@ def _run_with_dataloader(ds, num_workers):
     """Iterate using a PyTorch DataLoader for multi-worker parallelism."""
     import torch.utils.data
 
-    dl = torch.utils.data.DataLoader(ds, batch_size=None, num_workers=num_workers)
+    # Use "fork" context so workers inherit the pre-built Dask graph from the
+    # parent process without pickling.  Python 3.14+ defaults to forkserver/spawn.
+    dl = torch.utils.data.DataLoader(
+        ds, batch_size=None, num_workers=num_workers, multiprocessing_context="fork",
+    )
 
     total = 0
     t0 = time.perf_counter()

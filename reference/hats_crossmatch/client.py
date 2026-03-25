@@ -1,13 +1,8 @@
 """Streaming crossmatch client that returns an HF IterableDataset.
 
-Wraps lsdb's CatalogStream (which yields pandas DataFrames) into a
-datasets.IterableDataset (which yields dicts row-by-row), giving
-downstream code a unified interface whether data comes from a live
-lsdb crossmatch or a pre-computed HuggingFace dataset.
-
-When ``sharded=True`` (the default), each LSDB HEALPix partition becomes
-a separate HF shard, so ``DataLoader(ds, num_workers=N)`` can parallelise
-across partitions without Dask distributed.
+Each LSDB HEALPix partition becomes a separate HF shard, so
+``DataLoader(ds, num_workers=N)`` can parallelise across partitions
+without Dask distributed.
 """
 
 from __future__ import annotations
@@ -19,7 +14,42 @@ import nested_pandas as npd
 import pandas as pd
 from datasets import IterableDataset
 from lsdb.dask import merge_catalog_functions
-from lsdb.streams import CatalogStream
+
+# Module-level global used by forked worker processes.
+# With fork context, children inherit this via copy-on-write shared memory.
+_WORKER_PARTITIONS = None
+
+
+def _pool_worker(idx):
+    """Compute a single partition in a forked worker process."""
+    import os
+
+    import hats.io.file_io.file_io as _file_io
+
+    os.environ.setdefault("OMP_NUM_THREADS", "1")
+    os.environ.setdefault("MKL_NUM_THREADS", "1")
+    os.environ.setdefault("OPENBLAS_NUM_THREADS", "1")
+
+    _orig_read = _file_io.read_parquet_file_to_pandas
+    _file_io.read_parquet_file_to_pandas = _make_async_read_patch()
+    try:
+        chunk = _WORKER_PARTITIONS[idx].compute(scheduler="synchronous")
+    finally:
+        _file_io.read_parquet_file_to_pandas = _orig_read
+    return chunk
+
+
+def _iter_rows_multiproc(dask_partitions, num_proc):
+    """Yield one dict per row, using a multiprocessing pool for parallelism."""
+    global _WORKER_PARTITIONS
+    _WORKER_PARTITIONS = dask_partitions
+
+    import multiprocessing
+
+    ctx = multiprocessing.get_context("fork")
+    with ctx.Pool(num_proc) as pool:
+        for chunk in pool.imap_unordered(_pool_worker, range(len(dask_partitions))):
+            yield from chunk.to_dict("records")
 
 
 def _make_async_read_patch():
@@ -129,35 +159,6 @@ def _concat_partition_and_margin(
 merge_catalog_functions.concat_partition_and_margin = _concat_partition_and_margin
 
 
-def _iter_rows(xmatch, stats=None, n_workers=None, partitions_per_chunk=1):
-    """Yield one dict per row from the crossmatch CatalogStream.
-
-    If *stats* is a dict, it is updated in-place with partition progress:
-    ``npartitions``, ``partitions_done``.
-    """
-    client = None
-    if n_workers is not None:
-        from distributed import Client
-
-        client = Client(n_workers=n_workers, threads_per_worker=1)
-
-    stream = CatalogStream(
-        catalog=xmatch,
-        client=client,
-        partitions_per_chunk=partitions_per_chunk,
-        shuffle=False,
-    )
-    npartitions = xmatch.npartitions
-    if stats is not None:
-        stats["npartitions"] = npartitions
-        stats["partitions_done"] = 0
-    for chunk in stream:
-        for record in chunk.to_dict("records"):
-            yield record
-        if stats is not None:
-            stats["partitions_done"] += partitions_per_chunk
-
-
 def stream_crossmatch(
     url_a: str,
     url_b: str,
@@ -170,10 +171,8 @@ def stream_crossmatch(
     storage_options_b: dict | None = None,
     columns_a: list[str] | None = None,
     columns_b: list[str] | None = None,
-    partitions_per_chunk: int = 1,
-    n_workers: int | None = None,
-    sharded: bool = True,
     prefetch: int = 16,
+    num_proc: int = 0,
 ) -> IterableDataset:
     """Stream crossmatch results as an HF IterableDataset.
 
@@ -201,25 +200,16 @@ def stream_crossmatch(
         (e.g. ``spectrum``) and can dramatically improve throughput.
     columns_b : list[str] or None
         Columns to read from catalog B. ``None`` reads all columns.
-    partitions_per_chunk : int
-        Number of Dask partitions to compute per chunk. Higher values
-        increase memory usage but may improve throughput. Only used when
-        ``sharded=False``.
-    n_workers : int or None
-        If given, spin up a ``dask.distributed.Client`` with this many
-        single-threaded workers and pass it to ``CatalogStream``. Only
-        used when ``sharded=False``.
-    sharded : bool
-        If True (default), expose each LSDB partition as a separate HF
-        shard. This lets ``DataLoader(ds, num_workers=N)`` parallelise
-        across partitions without Dask distributed. When True,
-        ``n_workers`` and ``partitions_per_chunk`` are ignored — use
-        ``DataLoader`` workers instead.
     prefetch : int
         Number of partitions to compute concurrently using a thread pool.
         Overlaps network I/O with CPU crossmatch work (both release the
         GIL). Set to 1 to disable prefetching. Only used when
-        ``sharded=True``.
+        ``num_proc=0``.
+    num_proc : int
+        Number of worker processes for multiprocess parallelism. Uses
+        ``multiprocessing.Pool`` with ``fork`` context so children inherit
+        the Dask graph via copy-on-write shared memory. Set to 0 (default)
+        to use the single-process path.
 
     Returns
     -------
@@ -263,18 +253,26 @@ def stream_crossmatch(
     stats: dict[str, int] = {}
     stats["npartitions"] = xmatch.npartitions
 
-    if sharded:
-        # Pre-extract Dask partition references — lightweight graph objects,
-        # not computed data. As a tuple, HF broadcasts them to all shards
-        # (only lists trigger sharding). With fork start method, DataLoader
-        # workers inherit these via shared memory — no catalog re-opening.
-        dask_partitions = tuple(
-            xmatch._ddf.get_partition(i) for i in range(xmatch._ddf.npartitions)
+    # Pre-extract Dask partition references — lightweight graph objects,
+    # not computed data. As a tuple, HF broadcasts them to all shards
+    # (only lists trigger sharding). With fork start method, DataLoader
+    # workers inherit these via shared memory — no catalog re-opening.
+    dask_partitions = tuple(
+        xmatch._ddf.get_partition(i) for i in range(xmatch._ddf.npartitions)
+    )
+    # Each partition index is its own HF shard (1:1 mapping), so
+    # DataLoader(num_workers=N) can distribute individual partitions
+    # across N workers.  Prefetch batching happens inside the generator.
+    n = len(dask_partitions)
+    if num_proc > 0:
+        ds = IterableDataset.from_generator(
+            _iter_rows_multiproc,
+            gen_kwargs={
+                "dask_partitions": dask_partitions,
+                "num_proc": num_proc,
+            },
         )
-        # Each partition index is its own HF shard (1:1 mapping), so
-        # DataLoader(num_workers=N) can distribute individual partitions
-        # across N workers.  Prefetch batching happens inside the generator.
-        n = len(dask_partitions)
+    else:
         partition_indices = list(range(n))
         ds = IterableDataset.from_generator(
             _iter_rows_sharded,
@@ -282,16 +280,6 @@ def stream_crossmatch(
                 "partition_indices": partition_indices,
                 "dask_partitions": dask_partitions,
                 "prefetch": prefetch,
-            },
-        )
-    else:
-        ds = IterableDataset.from_generator(
-            _iter_rows,
-            gen_kwargs={
-                "xmatch": xmatch,
-                "stats": stats,
-                "n_workers": n_workers,
-                "partitions_per_chunk": partitions_per_chunk,
             },
         )
 
