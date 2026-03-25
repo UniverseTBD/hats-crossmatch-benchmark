@@ -30,8 +30,8 @@ def _pool_worker(idx):
     os.environ.setdefault("MKL_NUM_THREADS", "1")
     os.environ.setdefault("OPENBLAS_NUM_THREADS", "1")
 
-    _orig_read = _file_io.read_parquet_file_to_pandas
-    _file_io.read_parquet_file_to_pandas = _make_async_read_patch()
+    #_orig_read = _file_io.read_parquet_file_to_pandas
+    #_file_io.read_parquet_file_to_pandas = _make_async_read_patch()
     try:
         chunk = _WORKER_PARTITIONS[idx].compute(scheduler="synchronous")
     finally:
@@ -52,35 +52,35 @@ def _iter_rows_multiproc(dask_partitions, num_proc):
             yield from chunk.to_dict("records")
 
 
-def _make_async_read_patch():
-    """Create a patched ``read_parquet_file_to_pandas`` that uses async HTTP.
-
-    Returns the patched function.  The patch resolves ``hf://`` URLs to
-    ``https://`` and reads via ``fsspec.implementations.http.HTTPFileSystem``
-    (which inherits from ``AsyncFileSystem`` and uses aiohttp in a background
-    thread, bypassing the GIL).  Non-HF paths fall through to the original.
-    """
-    import re
-
-    import fsspec.implementations.http
-    import hats.io.file_io.file_io as _file_io
-    from huggingface_hub import hf_hub_url
-
-    _orig = _file_io.read_parquet_file_to_pandas
-    _http_fs = fsspec.implementations.http.HTTPFileSystem()
-
-    _HF_RE = re.compile(r"^hf://datasets/([^/]+/[^/]+)/(.+)$")
-
-    def _patched_read(path, *args, **kwargs):
-        path_str = str(path)
-        m = _HF_RE.match(path_str)
-        if m:
-            repo_id, file_path = m.group(1), m.group(2)
-            url = hf_hub_url(repo_id=repo_id, filename=file_path, repo_type="dataset")
-            return npd.read_parquet(url, filesystem=_http_fs, **kwargs)
-        return _orig(path, *args, **kwargs)
-
-    return _patched_read
+#def _make_async_read_patch():
+#    """Create a patched ``read_parquet_file_to_pandas`` that uses async HTTP.
+#
+#    Returns the patched function.  The patch resolves ``hf://`` URLs to
+#    ``https://`` and reads via ``fsspec.implementations.http.HTTPFileSystem``
+#    (which inherits from ``AsyncFileSystem`` and uses aiohttp in a background
+#    thread, bypassing the GIL).  Non-HF paths fall through to the original.
+#    """
+#    import re
+#
+#    import fsspec.implementations.http
+#    import hats.io.file_io.file_io as _file_io
+#    from huggingface_hub import hf_hub_url
+#
+#    _orig = _file_io.read_parquet_file_to_pandas
+#    _http_fs = fsspec.implementations.http.HTTPFileSystem()
+#
+#    _HF_RE = re.compile(r"^hf://datasets/([^/]+/[^/]+)/(.+)$")
+#
+#    def _patched_read(path, *args, **kwargs):
+#        path_str = str(path)
+#        m = _HF_RE.match(path_str)
+#        if m:
+#            repo_id, file_path = m.group(1), m.group(2)
+#            url = hf_hub_url(repo_id=repo_id, filename=file_path, repo_type="dataset")
+#            return npd.read_parquet(url, filesystem=_http_fs, **kwargs)
+#        return _orig(path, *args, **kwargs)
+#
+#    return _patched_read
 
 
 def _iter_rows_sharded(partition_indices, dask_partitions, prefetch=16):
@@ -106,8 +106,8 @@ def _iter_rows_sharded(partition_indices, dask_partitions, prefetch=16):
     os.environ.setdefault("MKL_NUM_THREADS", "1")
     os.environ.setdefault("OPENBLAS_NUM_THREADS", "1")
 
-    _orig_read = _file_io.read_parquet_file_to_pandas
-    _file_io.read_parquet_file_to_pandas = _make_async_read_patch()
+    #_orig_read = _file_io.read_parquet_file_to_pandas
+    #_file_io.read_parquet_file_to_pandas = _make_async_read_patch()
 
     try:
         # HF wraps each shard element in a list — unwrap to plain ints.

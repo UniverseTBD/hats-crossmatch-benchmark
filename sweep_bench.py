@@ -9,8 +9,8 @@ sys.path.insert(0, str(__import__("pathlib").Path(__file__).resolve().parent / "
 
 from hats_crossmatch import stream_crossmatch
 
-URL_A = "hf://datasets/UniverseTBD/mmu_sdss_sdss"
-URL_B = "hf://datasets/UniverseTBD/mmu_gz10"
+URL_A = "http://datasets/UniverseTBD/mmu_sdss_sdss"
+URL_B = "http://datasets/UniverseTBD/mmu_gz10"
 
 
 def main():
