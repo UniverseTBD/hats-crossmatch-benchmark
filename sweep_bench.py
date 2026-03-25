@@ -11,13 +11,15 @@ from hats_crossmatch import stream_crossmatch
 
 URL_A = "hf://datasets/UniverseTBD/mmu_sdss_sdss/"
 URL_B = "hf://datasets/UniverseTBD/mmu_gz10/"
+#URL_A = "https://huggingface.co/datasets/UniverseTBD/mmu_sdss_sdss/resolve/main/mmu_sdss_sdss/"
+#URL_B = "https://huggingface.co/datasets/UniverseTBD/mmu_gz10/resolve/main/mmu_gz10/"
 
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--num-proc", type=int, default=0)
     parser.add_argument("--prefetch", type=int, default=16)
     parser.add_argument("--dataloader-workers", type=int, default=0)
-    parser.add_argument("--max-rows", type=int, default=1000)
+    parser.add_argument("--max-rows", type=int, default=5000)
     args = parser.parse_args()
 
     # --- setup ---

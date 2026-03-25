@@ -20,10 +20,10 @@ run() {
         | tee -a "$JSONL"
 }
 
-echo "=== Group A: Prefetch only (num_proc=0, dataloader_workers=0) ==="
-for pf in 1 2 4 8 12 16; do
-    run 0 0 "$pf"
-done
+#echo "=== Group A: Prefetch only (num_proc=0, dataloader_workers=0) ==="
+#for pf in 1 2 4 8 12 16; do
+#    run 0 0 "$pf"
+#done
 
 echo ""
 echo "=== Group B: Multiprocess pool (dataloader_workers=0, prefetch=16) ==="
@@ -31,15 +31,15 @@ for np in 1 2 4 8; do
     run "$np" 0 16
 done
 
-echo ""
-echo "=== Group C: DataLoader workers only, prefetch 16 ==="
-for dw in 1 2 4 8; do
-    run 0 "$dw" 16
-done
+#echo ""
+#echo "=== Group C: DataLoader workers only, prefetch 16 ==="
+#for dw in 1 2 4 8; do
+#    run 0 "$dw" 16
+#done
 
 # Convert JSONL to JSON array
 echo "Converting to JSON array..."
-python3 -c "
+uv run python -c "
 import json, sys
 lines = open('$JSONL').read().strip().split('\n')
 results = [json.loads(l) for l in lines if l.strip()]
@@ -51,7 +51,7 @@ print(f'Wrote {len(results)} results to $JSON')
 # Summary table
 echo ""
 echo "=== Summary ==="
-python3 -c "
+uv run python -c "
 import json
 results = json.load(open('$JSON'))
 print(f'{'Config':<45} {'Setup':>7} {'TTFR':>7} {'Total':>7} {'Rows':>6} {'rows/s':>8}')
