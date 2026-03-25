@@ -14,7 +14,7 @@ run() {
     echo ">>> n_workers=$nw"
     uv run python sweep_bench.py \
         --n-workers "$nw" \
-        --max-rows 50 \
+        --max-rows 5000 \
         | tee -a "$JSONL"
 }
 
