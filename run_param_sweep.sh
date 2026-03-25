@@ -9,14 +9,12 @@ mkdir -p "$OUTDIR"
 > "$JSONL"  # truncate
 
 run() {
-    local np="$1" dw="$2" pf="$3"
+    local nw="$1"
     echo ""
-    echo ">>> num_proc=$np  dataloader_workers=$dw  prefetch=$pf"
+    echo ">>> n_workers=$nw"
     uv run python sweep_bench.py \
-        --num-proc "$np" \
-        --dataloader-workers "$dw" \
-        --prefetch "$pf" \
-        --max-rows 5000 \
+        --n-workers "$nw" \
+        --max-rows 50 \
         | tee -a "$JSONL"
 }
 
@@ -26,9 +24,9 @@ run() {
 #done
 
 echo ""
-echo "=== Group B: Multiprocess pool (dataloader_workers=0, prefetch=16) ==="
-for np in 1 2 4 8; do
-    run "$np" 0 16
+echo "=== Group B: Multiprocess pool (dataloader_workers=0) ==="
+for nw in 1 2 4 8; do
+    run "$nw"
 done
 
 #echo ""
@@ -57,6 +55,6 @@ results = json.load(open('$JSON'))
 print(f'{'Config':<45} {'Setup':>7} {'TTFR':>7} {'Total':>7} {'Rows':>6} {'rows/s':>8}')
 print('-' * 85)
 for r in results:
-    cfg = f\"np={r['num_proc']} dw={r['dataloader_workers']} pf={r['prefetch']}\"
+    cfg = f\"nw={r['n_workers']}\"
     print(f'{cfg:<45} {r[\"setup_time_s\"]:>7.1f} {r[\"time_to_first_row_s\"]:>7.1f} {r[\"total_time_s\"]:>7.1f} {r[\"total_rows\"]:>6} {r[\"throughput_rows_per_sec\"]:>8.1f}')
 "

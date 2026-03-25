@@ -16,9 +16,7 @@ URL_B = "hf://datasets/UniverseTBD/mmu_gz10/"
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--num-proc", type=int, default=0)
-    parser.add_argument("--prefetch", type=int, default=16)
-    parser.add_argument("--dataloader-workers", type=int, default=0)
+    parser.add_argument("--n-workers", type=int, default=0)
     parser.add_argument("--max-rows", type=int, default=5000)
     args = parser.parse_args()
 
@@ -29,25 +27,22 @@ def main():
         url_b=URL_B,
         radius_arcsec=1.0,
         n_neighbors=1,
-        prefetch=args.prefetch,
-        num_proc=args.num_proc,
+        n_workers=args.n_workers,
     )
     setup_time = time.perf_counter() - t_setup_start
 
     # --- iterate ---
-    if args.dataloader_workers > 0:
-        total, time_to_first, total_time = _run_dataloader(
-            ds, args.dataloader_workers, args.max_rows
-        )
-    else:
-        total, time_to_first, total_time = _run_simple(ds, args.max_rows)
+    #if args.dataloader_workers > 0:
+    #    total, time_to_first, total_time = _run_dataloader(
+    #        ds, args.dataloader_workers, args.max_rows
+    #    )
+    #else:
+    total, time_to_first, total_time = _run_simple(ds, args.max_rows)
 
     throughput = total / total_time if total_time > 0 else 0.0
 
     result = {
-        "num_proc": args.num_proc,
-        "dataloader_workers": args.dataloader_workers,
-        "prefetch": args.prefetch,
+        "n_workers": args.n_workers,
         "max_rows": args.max_rows,
         "setup_time_s": round(setup_time, 3),
         "time_to_first_row_s": round(time_to_first, 3),
