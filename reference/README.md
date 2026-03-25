@@ -9,7 +9,7 @@ from hats_crossmatch import stream_crossmatch
 
 ds = stream_crossmatch(
     url_a="hf://datasets/UniverseTBD/mmu_sdss_sdss",
-    url_b="hf://datasets/UniverseTBD/mmu_plasticc",
+    url_b="hf://datasets/UniverseTBD/mmu_gz10",
     radius_arcsec=1.0,
     n_neighbors=1,
 )
