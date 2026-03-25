@@ -1,9 +1,8 @@
 """Streaming crossmatch client that returns an HF IterableDataset.
 
-Wraps lsdb's CatalogStream (which yields pandas DataFrames) into a
-datasets.IterableDataset (which yields dicts row-by-row), giving
-downstream code a unified interface whether data comes from a live
-lsdb crossmatch or a pre-computed HuggingFace dataset.
+Each LSDB HEALPix partition becomes a separate HF shard, so
+``DataLoader(ds, num_workers=N)`` can parallelise across partitions
+without Dask distributed.
 """
 
 from __future__ import annotations
@@ -13,9 +12,137 @@ from typing import Any
 import lsdb
 import nested_pandas as npd
 import pandas as pd
-from datasets import Features, IterableDataset, Value
+from datasets import IterableDataset
 from lsdb.dask import merge_catalog_functions
-from lsdb.streams import CatalogStream
+
+# Module-level global used by forked worker processes.
+# With fork context, children inherit this via copy-on-write shared memory.
+_WORKER_PARTITIONS = None
+
+
+def _pool_worker(idx):
+    """Compute a single partition in a forked worker process."""
+    import os
+
+    import hats.io.file_io.file_io as _file_io
+
+    os.environ.setdefault("OMP_NUM_THREADS", "1")
+    os.environ.setdefault("MKL_NUM_THREADS", "1")
+    os.environ.setdefault("OPENBLAS_NUM_THREADS", "1")
+
+    _orig_read = _file_io.read_parquet_file_to_pandas
+    _file_io.read_parquet_file_to_pandas = _make_async_read_patch()
+    try:
+        chunk = _WORKER_PARTITIONS[idx].compute(scheduler="synchronous")
+    finally:
+        _file_io.read_parquet_file_to_pandas = _orig_read
+    return chunk
+
+
+def _iter_rows_multiproc(dask_partitions, num_proc):
+    """Yield one dict per row, using a multiprocessing pool for parallelism."""
+    global _WORKER_PARTITIONS
+    _WORKER_PARTITIONS = dask_partitions
+
+    import multiprocessing
+
+    ctx = multiprocessing.get_context("fork")
+    with ctx.Pool(num_proc) as pool:
+        for chunk in pool.imap_unordered(_pool_worker, range(len(dask_partitions))):
+            yield from chunk.to_dict("records")
+
+
+def _make_async_read_patch():
+    """Create a patched ``read_parquet_file_to_pandas`` that uses async HTTP.
+
+    Returns the patched function.  The patch resolves ``hf://`` URLs to
+    ``https://`` and reads via ``fsspec.implementations.http.HTTPFileSystem``
+    (which inherits from ``AsyncFileSystem`` and uses aiohttp in a background
+    thread, bypassing the GIL).  Non-HF paths fall through to the original.
+    """
+    import re
+
+    import fsspec.implementations.http
+    import hats.io.file_io.file_io as _file_io
+    from huggingface_hub import hf_hub_url
+
+    _orig = _file_io.read_parquet_file_to_pandas
+    _http_fs = fsspec.implementations.http.HTTPFileSystem()
+
+    _HF_RE = re.compile(r"^hf://datasets/([^/]+/[^/]+)/(.+)$")
+
+    def _patched_read(path, *args, **kwargs):
+        path_str = str(path)
+        m = _HF_RE.match(path_str)
+        if m:
+            repo_id, file_path = m.group(1), m.group(2)
+            url = hf_hub_url(repo_id=repo_id, filename=file_path, repo_type="dataset")
+            return npd.read_parquet(url, filesystem=_http_fs, **kwargs)
+        return _orig(path, *args, **kwargs)
+
+    return _patched_read
+
+
+def _iter_rows_sharded(partition_indices, dask_partitions, prefetch=16):
+    """Yield one dict per row, computing only the given partition indices.
+
+    Each element of ``partition_indices`` is a single int (one HF shard per
+    LSDB partition).  HF's ``from_generator`` distributes these across
+    DataLoader workers so each worker gets a disjoint subset.
+
+    ``dask_partitions`` is a ``tuple`` (broadcast, not sharded) of
+    lightweight Dask graph references.  With ``fork`` start method,
+    workers inherit these via shared memory.
+
+    Within each worker, indices are grouped into ``prefetch``-sized batches
+    and computed via a double-buffered pipeline to overlap I/O with yielding.
+    """
+    import os
+
+    import dask
+    import hats.io.file_io.file_io as _file_io
+
+    os.environ.setdefault("OMP_NUM_THREADS", "1")
+    os.environ.setdefault("MKL_NUM_THREADS", "1")
+    os.environ.setdefault("OPENBLAS_NUM_THREADS", "1")
+
+    _orig_read = _file_io.read_parquet_file_to_pandas
+    _file_io.read_parquet_file_to_pandas = _make_async_read_patch()
+
+    try:
+        # HF wraps each shard element in a list — unwrap to plain ints.
+        indices = [
+            x if isinstance(x, int) else x[0]
+            for x in partition_indices
+        ]
+
+        if prefetch <= 1:
+            for idx in indices:
+                chunk = dask_partitions[idx].compute(scheduler="synchronous")
+                yield from chunk.to_dict("records")
+            return
+
+        from concurrent.futures import ThreadPoolExecutor
+
+        def compute_batch(batch_indices):
+            parts = [dask_partitions[i] for i in batch_indices]
+            return dask.compute(*parts, scheduler="threads", num_workers=prefetch)
+
+        batches = [
+            indices[i : i + prefetch]
+            for i in range(0, len(indices), prefetch)
+        ]
+
+        with ThreadPoolExecutor(max_workers=1) as bg:
+            future = bg.submit(compute_batch, batches[0])
+            for i, batch in enumerate(batches):
+                results = future.result()
+                if i + 1 < len(batches):
+                    future = bg.submit(compute_batch, batches[i + 1])
+                for chunk in results:
+                    yield from chunk.to_dict("records")
+    finally:
+        _file_io.read_parquet_file_to_pandas = _orig_read
 
 
 def _concat_partition_and_margin(
@@ -32,35 +159,6 @@ def _concat_partition_and_margin(
 merge_catalog_functions.concat_partition_and_margin = _concat_partition_and_margin
 
 
-def _iter_rows(xmatch, stats=None, n_workers=None, partitions_per_chunk=1):
-    """Yield one dict per row from the crossmatch CatalogStream.
-
-    If *stats* is a dict, it is updated in-place with partition progress:
-    ``npartitions``, ``partitions_done``.
-    """
-    client = None
-    if n_workers is not None:
-        from distributed import Client
-
-        client = Client(n_workers=n_workers, threads_per_worker=1)
-
-    stream = CatalogStream(
-        catalog=xmatch,
-        client=client,
-        partitions_per_chunk=partitions_per_chunk,
-        shuffle=False,
-    )
-    npartitions = xmatch.npartitions
-    if stats is not None:
-        stats["npartitions"] = npartitions
-        stats["partitions_done"] = 0
-    for chunk in stream:
-        for record in chunk.to_dict("records"):
-            yield record
-        if stats is not None:
-            stats["partitions_done"] += partitions_per_chunk
-
-
 def stream_crossmatch(
     url_a: str,
     url_b: str,
@@ -71,8 +169,10 @@ def stream_crossmatch(
     search_filter: Any | None = None,
     storage_options_a: dict | None = None,
     storage_options_b: dict | None = None,
-    partitions_per_chunk: int = 1,
-    n_workers: int | None = None,
+    columns_a: list[str] | None = None,
+    columns_b: list[str] | None = None,
+    prefetch: int = 16,
+    num_proc: int = 0,
 ) -> IterableDataset:
     """Stream crossmatch results as an HF IterableDataset.
 
@@ -94,12 +194,22 @@ def stream_crossmatch(
         Storage options for catalog A (e.g. ``{"anon": True}`` for S3).
     storage_options_b : dict or None
         Storage options for catalog B.
-    partitions_per_chunk : int
-        Number of Dask partitions to compute per chunk. Higher values
-        increase memory usage but may improve throughput.
-    n_workers : int or None
-        If given, spin up a ``dask.distributed.Client`` with this many
-        single-threaded workers and pass it to ``CatalogStream``.
+    columns_a : list[str] or None
+        Columns to read from catalog A. ``None`` reads all columns.
+        Selecting only needed columns avoids fetching large columns
+        (e.g. ``spectrum``) and can dramatically improve throughput.
+    columns_b : list[str] or None
+        Columns to read from catalog B. ``None`` reads all columns.
+    prefetch : int
+        Number of partitions to compute concurrently using a thread pool.
+        Overlaps network I/O with CPU crossmatch work (both release the
+        GIL). Set to 1 to disable prefetching. Only used when
+        ``num_proc=0``.
+    num_proc : int
+        Number of worker processes for multiprocess parallelism. Uses
+        ``multiprocessing.Pool`` with ``fork`` context so children inherit
+        the Dask graph via copy-on-write shared memory. Set to 0 (default)
+        to use the single-process path.
 
     Returns
     -------
@@ -124,6 +234,11 @@ def stream_crossmatch(
     elif url_b.startswith("s3://"):
         kwargs_b["storage_options"] = {"anon": True}
 
+    if columns_a is not None:
+        kwargs_a["columns"] = columns_a
+    if columns_b is not None:
+        kwargs_b["columns"] = columns_b
+
     cat_a = lsdb.open_catalog(url_a, **kwargs_a)
     cat_b = lsdb.open_catalog(url_b, **kwargs_b)
 
@@ -136,15 +251,38 @@ def stream_crossmatch(
     )
 
     stats: dict[str, int] = {}
-    ds = IterableDataset.from_generator(
-        _iter_rows,
-        gen_kwargs={
-            "xmatch": xmatch,
-            "stats": stats,
-            "n_workers": n_workers,
-            "partitions_per_chunk": partitions_per_chunk,
-        },
+    stats["npartitions"] = xmatch.npartitions
+
+    # Pre-extract Dask partition references — lightweight graph objects,
+    # not computed data. As a tuple, HF broadcasts them to all shards
+    # (only lists trigger sharding). With fork start method, DataLoader
+    # workers inherit these via shared memory — no catalog re-opening.
+    dask_partitions = tuple(
+        xmatch._ddf.get_partition(i) for i in range(xmatch._ddf.npartitions)
     )
+    # Each partition index is its own HF shard (1:1 mapping), so
+    # DataLoader(num_workers=N) can distribute individual partitions
+    # across N workers.  Prefetch batching happens inside the generator.
+    n = len(dask_partitions)
+    if num_proc > 0:
+        ds = IterableDataset.from_generator(
+            _iter_rows_multiproc,
+            gen_kwargs={
+                "dask_partitions": dask_partitions,
+                "num_proc": num_proc,
+            },
+        )
+    else:
+        partition_indices = list(range(n))
+        ds = IterableDataset.from_generator(
+            _iter_rows_sharded,
+            gen_kwargs={
+                "partition_indices": partition_indices,
+                "dask_partitions": dask_partitions,
+                "prefetch": prefetch,
+            },
+        )
+
     ds.crossmatch_stats = stats
     ds.total_rows_a = cat_a.hc_structure.catalog_info.total_rows
     ds.total_rows_b = cat_b.hc_structure.catalog_info.total_rows
