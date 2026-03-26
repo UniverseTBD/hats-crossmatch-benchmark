@@ -1,6 +1,6 @@
 # HATS Crossmatch Benchmark
 
-Benchmarking tool for measuring [LSDB](https://lsdb.readthedocs.io/) crossmatch performance on HATS-formatted catalogs hosted on Hugging Face.
+Benchmarking tool for measuring [LSDB](https://lsdb.readthedocs.io/) crossmatch performance on [HATS-formatted catalogs hosted on Hugging Face](https://huggingface.co/collections/UniverseTBD/multimodal-universe-lsdb-hats).
 
 ## Setup
 
